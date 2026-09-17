@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리동네 택시지도 - 출발지·목적지·내 위치</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--primary:#111827;--accent:#FACC15;--accent-d:#CA8A04;--bg:#F8FAFC;--card:#fff;--muted:#64748B;--line:#E2E8F0;}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:#0F172A}
+header{background:var(--primary);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:500}
+header h1{margin:0;font-size:18px}
+header p{margin:4px 0 0;font-size:12px;color:#CBD5E1}
+.wrap{max-width:960px;margin:0 auto;padding:12px 12px 60px}
+#map{height:52vh;min-height:340px;border-radius:14px;border:1px solid var(--line);z-index:1}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{min-height:44px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:15px;cursor:pointer}
+button.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+button.accent{background:var(--accent);border-color:var(--accent-d);color:#111827;font-weight:700}
+button.active{outline:3px solid var(--accent);font-weight:700}
+button:disabled{opacity:.5;cursor:not-allowed}
+input[type=text]{flex:1;min-width:180px;min-height:44px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:15px}
+.info{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px;line-height:1.6}
+.muted{color:var(--muted);font-size:13px}
+.place-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px}
+@media(min-width:480px){.place-grid{grid-template-columns:1fr 1fr}}
+@media(min-width:700px){.place-grid{grid-template-columns:1fr 1fr 1fr 1fr}}
+a.telbtn{flex:1;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:15px;cursor:pointer;color:#0F172A;text-decoration:none}
+.place{border:1px solid var(--line);border-radius:10px;padding:10px;text-align:left;background:#fff}
+.place b{display:block;font-size:14px}
+.place span{font-size:12px;color:var(--muted)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#111827;color:#fff;padding:12px 18px;border-radius:999px;font-size:14px;display:none;z-index:999;max-width:90%}
+ul.clean{list-style:none;margin:8px 0 0;padding:0}
+ul.clean li{border-top:1px solid var(--line);padding:10px 4px;font-size:14px}
+.tag{display:inline-block;background:#F1F5F9;border-radius:999px;padding:2px 10px;font-size:12px;margin-right:6px}
+footer{margin-top:16px;font-size:12px;color:var(--muted)}
+.result-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+<h1>🚕 우리동네 택시지도</h1>
+<p>실제 지도 + 출발지·목적지 지정 + 내 위치 GPS · 요금·시간 안내</p>
+</header>
+<div class="wrap">
+<div id="map" aria-label="지도"></div>
+
+<div class="panel">
+<div class="row">
+<input type="text" id="q" placeholder="주소·장소 검색 (예: 강남역, 서울역)">
+<button class="primary" id="btnSearch">검색</button>
+</div>
+<div id="searchResults"></div>
+<div class="row" style="margin-top:10px">
+<button id="btnMyLoc">📍 내 위치</button>
+<button id="btnOrigin">🟢 출발지로 지정</button>
+<button id="btnDest">🔴 목적지로 지정</button>
+<button class="accent" id="btnRoute">택시 경로 찾기</button>
+<button id="btnClear">초기화</button>
+</div>
+<p class="muted" style="margin:8px 0 0">지도를 직접 눌러 지정할 수도 있어요. 먼저 위 버튼으로 모드를 고른 뒤 지도를 누르세요. 현재 모드: <b id="modeLabel">없음</b></p>
+<div class="info" id="routeInfo">출발지와 목적지를 정하면 예상 거리·시간·택시요금을 알려드려요.</div>
+<div class="row" style="margin-top:10px">
+<a class="telbtn" href="tel:02-114">☎️ 택시 안내전화 연결</a>
+<button id="btnSave" style="flex:1">⭐ 이 경로 저장</button>
+</div>
+<p class="muted">입력하신 검색어·저장 경로는 이 기기 브라우저(localStorage)에만 저장되며 서버로 전송되지 않습니다.</p>
+</div>
+
+<div class="panel">
+<h2 style="margin:0;font-size:16px">자주 가는 장소 (눌러서 목적지로)</h2>
+<p class="muted">8곳을 눌러 바로 목적지로 정할 수 있어요. 출발지는 내 위치 버튼으로 잡으세요.</p>
+<div class="place-grid" id="places"></div>
+</div>
+
+<div class="panel">
+<h2 style="margin:0;font-size:16px">최근 이용한 경로</h2>
+<p class="muted">저장 버튼을 누른 경로가 이 기기에 보관됩니다.</p>
+<ul class="clean" id="recent"><li class="muted">아직 저장된 경로가 없어요.</li></ul>
+</div>
+
+<footer>지도: OpenStreetMap · 경로: OSRM 공개 서버 · 위치: 브라우저 GPS(geolocation). 상용 호출량에는 자체 타일·라우팅 서버가 필요합니다.</footer>
+</div>
+<div id="toast" role="status"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+if(typeof L==='undefined'){var _m=document.getElementById('map');_m.textContent='지도를 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.';var _t=document.getElementById('toast');_t.textContent='지도 로딩 실패: 네트워크를 확인해 주세요';_t.style.display='block';return;}
+var map = L.map('map').setView([37.5665,126.9780], 14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'}).addTo(map);
+
+var origin=null, dest=null, originMk=null, destMk=null, myMk=null, myCircle=null, routeLine=null, mode=null, routing=false;
+var $ = function(id){return document.getElementById(id);};
+var toastTimer=null;
+function toast(msg){var t=$('toast');t.textContent=msg;t.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.style.display='none';},2600);}
+function setMode(m){mode=m;$('modeLabel').textContent = m==='origin'?'출발지 지정 중':(m==='dest'?'목적지 지정 중':'없음');$('btnOrigin').classList.toggle('active',m==='origin');$('btnDest').classList.toggle('active',m==='dest');if(m)toast(m==='origin'?'지도를 눌러 출발지를 찍으세요':'지도를 눌러 목적지를 찍으세요');}
+$('btnOrigin').addEventListener('click',function(){setMode(mode==='origin'?null:'origin');});
+$('btnDest').addEventListener('click',function(){setMode(mode==='dest'?null:'dest');});
+
+function setOrigin(latlng,label){origin={lat:latlng.lat,lng:latlng.lng,label:label||('위도 '+latlng.lat.toFixed(5)+', 경도 '+latlng.lng.toFixed(5))};if(originMk)map.removeLayer(originMk);originMk=L.marker([origin.lat,origin.lng],{title:'출발지'}).addTo(map);var _po=document.createElement('div');_po.textContent='🟢 출발지: '+origin.label;originMk.bindPopup(_po).openPopup();}
+function setDest(latlng,label){dest={lat:latlng.lat,lng:latlng.lng,label:label||('위도 '+latlng.lat.toFixed(5)+', 경도 '+latlng.lng.toFixed(5))};if(destMk)map.removeLayer(destMk);destMk=L.marker([dest.lat,dest.lng],{title:'목적지'}).addTo(map);var _pd=document.createElement('div');_pd.textContent='🔴 목적지: '+dest.label;destMk.bindPopup(_pd).openPopup();}
+
+map.on('click',function(e){if(mode==='origin'){setOrigin(e.latlng);setMode(null);}else if(mode==='dest'){setDest(e.latlng);setMode(null);}});
+
+function onLoc(lat,lng,acc){if(!myMk){myMk=L.circleMarker([lat,lng],{radius:9,color:'#1D4ED8',fillColor:'#3B82F6',fillOpacity:1,weight:3}).addTo(map);myMk.bindPopup('📍 내 위치');}else{myMk.setLatLng([lat,lng]);}if(acc){if(!myCircle){myCircle=L.circle([lat,lng],{radius:acc,color:'#93C5FD',fillOpacity:.25}).addTo(map);}else{myCircle.setLatLng([lat,lng]);myCircle.setRadius(acc);}}}
+$('btnMyLoc').addEventListener('click',function(){
+if(!navigator.geolocation){toast('이 브라우저는 위치 기능을 지원하지 않아요');return;}
+toast('내 위치를 찾는 중…');
+navigator.geolocation.getCurrentPosition(function(p){
+var lat=p.coords.latitude,lng=p.coords.longitude;
+onLoc(lat,lng,p.coords.accuracy);map.setView([lat,lng],16);toast('내 위치로 이동했어요');
+},function(err){var m='위치를 가져오지 못했어요. 잠시 후 다시 시도해 주세요';if(err&&err.code===1)m='위치 권한이 꺼져 있어요. 브라우저 주소창의 위치 권한을 허용한 뒤 다시 눌러 주세요';else if(err&&err.code===2)m='현재 위치를 알 수 없어요. GPS 신호가 약하거나 실내일 수 있어요';else if(err&&err.code===3)m='위치 찾기가 시간 초과됐어요. 다시 눌러 주세요';toast(m);},{enableHighAccuracy:true,timeout:10000});
+});
+if(navigator.geolocation){try{navigator.geolocation.watchPosition(function(p){onLoc(p.coords.latitude,p.coords.longitude,p.coords.accuracy);},function(){},{enableHighAccuracy:true});}catch(e){}}
+
+// 검색 (Nominatim)
+$('btnSearch').addEventListener('click',doSearch);
+$('q').addEventListener('keydown',function(e){if(e.key==='Enter')doSearch();});
+var searching=false;
+function doSearch(){
+if(searching)return;
+var kw=$('q').value.trim();
+var box=$('searchResults');box.textContent='';
+if(!kw){toast('검색어를 입력해 주세요');return;}
+searching=true;$('btnSearch').disabled=true;toast('검색 중…');
+fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=ko&limit=5&countrycodes=kr&q='+encodeURIComponent(kw),{headers:{'Accept':'application/json'}})
+.then(function(r){return r.json();})
+.then(function(arr){
+box.textContent='';
+if(!arr||!arr.length){var p=document.createElement('p');p.className='muted';p.textContent='검색 결과가 없어요. 동 이름+번지처럼 바꿔 검색해 보세요.';box.appendChild(p);return;}
+arr.forEach(function(it){
+var d=document.createElement('div');d.style.cssText='border-top:1px solid #E2E8F0;padding:8px 2px;font-size:14px;';
+var t=document.createElement('div');t.textContent=it.display_name; d.appendChild(t);
+var br=document.createElement('div');br.className='result-btns';
+var b1=document.createElement('button');b1.textContent='출발지로';b1.addEventListener('click',function(){setOrigin({lat:parseFloat(it.lat),lng:parseFloat(it.lon)},it.display_name);map.setView([parseFloat(it.lat),parseFloat(it.lon)],16);});
+var b2=document.createElement('button');b2.textContent='목적지로';b2.addEventListener('click',function(){setDest({lat:parseFloat(it.lat),lng:parseFloat(it.lon)},it.display_name);map.setView([parseFloat(it.lat),parseFloat(it.lon)],16);});
+var b3=document.createElement('button');b3.textContent='지도보기';b3.addEventListener('click',function(){map.setView([parseFloat(it.lat),parseFloat(it.lon)],16);});
+br.appendChild(b1);br.appendChild(b2);br.appendChild(b3);d.appendChild(br);box.appendChild(d);
+});
+})
+.catch(function(){toast('검색 서버 연결에 실패했어요. 잠시 후 다시 시도해 주세요');}).finally(function(){searching=false;$('btnSearch').disabled=false;});
+}
+
+// 경로 (OSRM)
+function fare(mid){ // 서울 중형택시(2024~ 기준, 주간): 기본 4800원/1.6km, 이후 131m당 100원, 시속 30km 이하 30초당 100원 가정 단순화
+var base=4800;if(mid<=1600)return base;return base+Math.ceil((mid-1600)/131)*100;}
+$('btnRoute').addEventListener('click',function(){
+if(routing)return;
+if(!origin||!dest){toast('출발지와 목적지를 먼저 정해 주세요');return;}
+routing=true;$('btnRoute').disabled=true;$('btnRoute').textContent='경로 계산 중…';
+var url='https://router.project-osrm.org/route/v1/driving/'+origin.lng+','+origin.lat+';'+dest.lng+','+dest.lat+'?overview=full&geometries=geojson';
+fetch(url).then(function(r){return r.json();}).then(function(j){
+if(!j.routes||!j.routes.length)throw new Error('no route');
+var rt=j.routes[0];var km=rt.distance/1000;var min=Math.round(rt.duration/60);
+var money=fare(rt.distance);
+if(routeLine)map.removeLayer(routeLine);
+routeLine=L.geoJSON(rt.geometry,{style:{color:'#0B6E4F',weight:6,opacity:.9}}).addTo(map);
+map.fitBounds(routeLine.getBounds(),{padding:[30,30]});
+var box=$('routeInfo');box.textContent='';
+var l1=document.createElement('div');l1.textContent='🟢 출발: '+origin.label;box.appendChild(l1);
+var l2=document.createElement('div');l2.textContent='🔴 도착: '+dest.label;box.appendChild(l2);
+var l3=document.createElement('div');var strong=document.createElement('b');strong.textContent='예상 '+km.toFixed(1)+'km · 약 '+min+'분 · 택시요금 약 '+money.toLocaleString('ko-KR')+'원';l3.appendChild(strong);box.appendChild(l3);
+var s=document.createElement('div');s.className='muted';s.textContent='* 요금은 주간·정체 없음 기준 추정치이며 할증·통행료는 제외됩니다.';box.appendChild(s);
+toast('경로를 찾았어요');
+}).catch(function(){toast('경로를 찾지 못했어요. 지점 위치를 확인해 주세요');})
+.finally(function(){routing=false;$('btnRoute').disabled=false;$('btnRoute').textContent='택시 경로 찾기';});
+});
+$('btnClear').addEventListener('click',function(){origin=null;dest=null;if(originMk)map.removeLayer(originMk);if(destMk)map.removeLayer(destMk);if(routeLine)map.removeLayer(routeLine);originMk=destMk=routeLine=null;$('routeInfo').textContent='출발지와 목적지를 정하면 예상 거리·시간·택시요금을 알려드려요.';toast('지웠어요');});
+
+// 자주 가는 장소 8곳
+var spots=[
+['강남역','서울 강남구 강남대로 396','37.4979,127.0276'],
+['서울역','서울 용산구 한강대로 405','37.5547,126.9706'],
+['홍대입구역','서울 마포구 양화로 160','37.5569,126.9239'],
+['여의도역','서울 영등포구 여의나루로 40','37.5219,126.9242'],
+['잠실역','서울 송파구 올림픽로 265','37.5133,127.1001'],
+['인천공항 T1','인천 중구 공항로 272','37.4602,126.4407'],
+['수원역','경기 수원시 팔달구 덕영대로 924','37.2656,127.0002'],
+['대전역','대전 동구 중앙로 215','36.3320,127.4347']];
+var pg=$('places');
+spots.forEach(function(s){
+var b=document.createElement('button');b.className='place';
+var t1=document.createElement('b');t1.textContent=s[0];b.appendChild(t1);
+var t2=document.createElement('span');t2.textContent=s[1];b.appendChild(t2);
+b.addEventListener('click',function(){var ll=s[2].split(',');setDest({lat:parseFloat(ll[0]),lng:parseFloat(ll[1])},s[0]+' ('+s[1]+')');map.setView([parseFloat(ll[0]),parseFloat(ll[1])],15);toast(s[0]+'을(를) 목적지로 정했어요');});
+pg.appendChild(b);
+});
+
+// 최근 경로
+function loadRecent(){var ul=$('recent');ul.textContent='';var arr=[];try{arr=JSON.parse(localStorage.getItem('taxi_recent')||'[]');}catch(e){arr=[];}
+if(!arr.length){var li=document.createElement('li');li.className='muted';li.textContent='아직 저장된 경로가 없어요.';ul.appendChild(li);return;}
+arr.slice(0,10).forEach(function(r){var li=document.createElement('li');var d=document.createElement('div');d.textContent=r;li.appendChild(d);ul.appendChild(li);});}
+loadRecent();
+var saving=false;
+$('btnSave').addEventListener('click',function(){
+if(saving)return;if(!origin||!dest){toast('저장할 출발지·목적지가 없어요');return;}
+saving=true;$('btnSave').disabled=true;
+try{var arr=JSON.parse(localStorage.getItem('taxi_recent')||'[]');var label=new Date().toLocaleString('ko-KR')+' | '+origin.label+' → '+dest.label;
+if(!arr.includes(label)){arr.unshift(label);localStorage.setItem('taxi_recent',JSON.stringify(arr.slice(0,20)));}loadRecent();toast('이 경로를 저장했어요');}
+catch(e){toast('저장에 실패했어요');}
+saving=false;$('btnSave').disabled=false;
+});
+})();
+</script>
+
+<!--ethos-badge--><div style="text-align:center;padding:16px 8px 20px;font:12px/1.6 -apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#9aa1a9">이 페이지는 <a href="https://ethos.ai.kr" target="_blank" rel="noopener" style="color:#8a919b;text-decoration:underline">에토스AI 코드</a>로 만들어졌습니다</div>
+</body>
+</html>
